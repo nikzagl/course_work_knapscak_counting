@@ -1,16 +1,10 @@
-#include <vector>
-#include <algorithm>
-#include <iostream>
-#include <fstream>
-#include <cmath>
-#include <ctime>
-#include <chrono>
-#include <limits>
-#include <numbers>
-#include <iomanip>
-#include <random> 
 
-std::independent_bits_engine<std::mt19937,64,uint_fast64_t> generator (0);
+ #include "counting_algorithm.h"
+
+std::random_device dev;
+std::mt19937 rng(dev());
+std::uniform_int_distribution<uint32_t> uint_2(0, 1);         // by default range [0, MAX]
+
 
 
 bool is_valid(std::vector<long double> state, std::vector<long double> a, long double b)
@@ -22,18 +16,6 @@ bool is_valid(std::vector<long double> state, std::vector<long double> a, long d
     }
     return dot_product <= b;
 }
-class KnapsackMCMC
-{
-    private:
-        std::vector<long double> m_a;
-        long double m_b;
-        std::vector<long double> m_state;
-    public:
-        long double current_sum = 0;
-        KnapsackMCMC(std::vector <long double> a, long double b);
-        void single_step();
-        void run_chain(long long n_steps);
-};
 
 KnapsackMCMC::KnapsackMCMC(std::vector<long double> a, long double b)
 {
@@ -43,12 +25,9 @@ KnapsackMCMC::KnapsackMCMC(std::vector<long double> a, long double b)
 }
 void KnapsackMCMC::single_step()
 {
-    int choice = generator()%2;
-    if (!(choice))
-    {
-        return;
-    }
-    int i = generator() % (m_a.size());
+    int choice = uint_2(rng);
+    std::uniform_int_distribution<uint32_t> uint_dist_masize(0, m_a.size() - 1);
+    int i = uint_dist_masize(rng);
     if (m_state[i] == 1)
     {
         m_state[i] = 0;
@@ -70,7 +49,7 @@ void KnapsackMCMC::run_chain(long long n_steps)
 
 long double estimate_ratio(std::vector<long double> a, long double b_current, long double b_prev, long double epsilon, long double delta, long long mixing_steps)
 {
-     long long num_samples = size(a)*ceil(1/(pow(epsilon, 2))*log(2/delta));
+     long long num_samples = a.size()*ceil(1/(pow(epsilon, 2))*log(2/delta));
 
      long long count = 0;
      for (long long i = 0; i <= num_samples; ++i)
@@ -84,7 +63,7 @@ long double estimate_ratio(std::vector<long double> a, long double b_current, lo
      }
      return (long double)num_samples/(long double)count;
 }
-std::vector<long double> fpras_knapscak(std::vector<long double> a, long double b, long double epsilon=0.2, long double delta=0.2)
+std::vector<long double> fpras_knapscak(std::vector<long double> a, long double b, long double epsilon, long double delta)
 {
     std::vector<long double> a_sorted = a;
     std::sort(a_sorted.begin(), a_sorted.end());
@@ -101,8 +80,8 @@ std::vector<long double> fpras_knapscak(std::vector<long double> a, long double 
     if (k == 0)
         return {1, epsilon, delta};
     
-    long long mixing_steps = 2*ceil(a.size() + log(1/epsilon));
-    long long num_samples = size(a)*ceil(1/pow(epsilon/k, 2)*log(2/delta));
+    long long mixing_steps = pow(a.size(), 2)*log(a.size()/epsilon);
+    long long num_samples = a.size()*ceil(1/pow(epsilon/k, 2)*log(2/delta));
     long long count_omega = 0;
     
     for (int i = 0; i < num_samples; ++i)
@@ -142,88 +121,4 @@ long long exact_counting(std::vector<long double> a, long double b)
         }
     }
     return result;
-}
-int main()
-{
-    std::ofstream file;
-    file.open("dep_times_n.txt");
-    std::vector<long double> a = {1, 2};
-    long double b = 2;
-    for (int i = 3; i <= 22; ++i)
-    {
-        auto beg = std::chrono::high_resolution_clock::now();
-        fpras_knapscak(a, b, 0.1, 0.1);
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - beg);
-        std::cout<<a.size()<<" "<<duration.count()<<"\n";
-        file << a.size() << " "<<duration.count() << "\n";
-        b = i;
-        a.push_back(i);
-    }
-    file.close();
-    file.open("dep_times_eps.txt");
-    a = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-    b = 12;
-    for (long double eps = 0.5; eps < 0.98; eps += 0.02)
-    {
-         auto beg = std::chrono::high_resolution_clock::now();
-        fpras_knapscak(a, b, 1-eps, 0.1);
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - beg);
-        std::cout<<eps<<" "<<duration.count()<<"\n";
-        file <<eps << " "<<duration.count() << "\n";
-    }
-    file.close();
-    file.open("dep_times_delta.txt");
-    for (long double delta = 0.8;delta < 0.99; delta += 0.01)
-    {
-         auto beg = std::chrono::high_resolution_clock::now();
-        fpras_knapscak(a, b, 0.1, 1-delta);
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - beg);
-        std::cout<<delta<<" "<<duration.count()<<"\n";
-        file << delta<< " "<<duration.count() << "\n";
-    }
-    file.close();
-   /*std::vector<long double> a = {1, 2, 3, 4, 5, 6, 7, 8, 9};
-   long double b = 10;
-   long long exact_result = exact_counting(a, b);
-   int n_successes = 0;
-   std::vector<long double> fpras_result;
-   for (int i = 0; i < 200; ++i)
-   {
-    std::cout << i + 1;
-    fpras_result = fpras_knapscak(a, b, 0.05, 0.05);
-    long double fpras_answer = fpras_result[0];
-    long double error = fpras_result[1];
-    if (abs(fpras_answer - exact_result) <= error)
-    {
-        n_successes += 1;
-    }
-   }
-   long double ratio = (long double)n_successes/200;
-   std::cout<<"\n"<< ratio<<"\n"<<n_successes;
-   */
-   /*
-   std::vector<long double> a(16,1);
-   long double b = 1;
-   long long exact_result = exact_counting(a, b);
-   std::cout<<exact_result<<"\n";
-   int n_successes = 0;
-   std::vector<long double> fpras_result;
-   for (int i = 0; i < 200; ++i)
-   {
-    fpras_result = fpras_knapscak(a, b, 0.05, 0.05);
-    long double fpras_answer = fpras_result[0];
-    long double error = fpras_result[1];
-    if (abs(fpras_answer - exact_result) <= error)
-    {
-        n_successes += 1;
-    }
-    std::cout<<fpras_result[0] << " "<<fpras_result[1] <<"\n";
-    std::cout<<i<<"...";
-   }
-   long double ratio = (long double)n_successes/200;
-   std::cout<<"\n"<< ratio<<"\n"<<n_successes;
-   */
 }
